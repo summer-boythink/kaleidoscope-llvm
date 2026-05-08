@@ -1,0 +1,33 @@
+# 构建输出
+bin/
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# 可执行文件
+kaleidoscope
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake 缓存
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile.cmake
+
+# 调试文件
+*.dSYM/
+*.su
+
+# 测试输出
+*.ll
+*.bc
+*.s
