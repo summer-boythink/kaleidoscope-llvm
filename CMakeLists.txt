@@ -23,14 +23,25 @@ add_definitions(${LLVM_DEFINITIONS_LIST})
 # core: 核心库
 # support: 支持库
 # native: 本地代码生成
+# orcjit: ORC JIT 支持
 # irreader: IR 读取器（可选）
-# x86asmparser, x86codegen: x86 支持（可选，用于生成目标代码）
 llvm_map_components_to_libnames(llvm_libs
     core
     support
     native
+    orcjit
     irreader
 )
+
+# 优先使用动态链接 LLVM
+# 检查是否存在 libLLVM 共享库
+find_library(LLVM_SHARED_LIB LLVM HINTS ${LLVM_LIBRARY_DIRS})
+if(LLVM_SHARED_LIB)
+    message(STATUS "Using shared LLVM: ${LLVM_SHARED_LIB}")
+    set(llvm_libs ${LLVM_SHARED_LIB})
+else()
+    message(STATUS "Using static LLVM libraries")
+endif()
 
 # 头文件目录
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -41,6 +52,8 @@ set(SOURCES
     src/lexer.cpp
     src/parser.cpp
     src/codegen.cpp
+    src/jit.cpp
+    src/optimizer.cpp
 )
 
 # 创建可执行文件
@@ -58,6 +71,10 @@ if(NOT WIN32)
     find_library(PTHREAD_LIBRARY pthread)
     if(PTHREAD_LIBRARY)
         target_link_libraries(kaleidoscope ${PTHREAD_LIBRARY})
+    endif()
+    find_library(Z_LIBRARY z)
+    if(Z_LIBRARY)
+        target_link_libraries(kaleidoscope ${Z_LIBRARY})
     endif()
 endif()
 

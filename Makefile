@@ -7,10 +7,10 @@ CXXFLAGS = -std=c++17 -g -O2 -Wall -Wextra -I./include
 # 获取 LLVM 编译选项
 LLVM_CONFIG = llvm-config
 LLVM_CXXFLAGS = $(shell $(LLVM_CONFIG) --cxxflags 2>/dev/null || echo "-I/usr/include/llvm-17")
-LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags --system-libs --libs core support native irreader 2>/dev/null || echo "-lLLVM-17")
+LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags --system-libs --libs core support native orcjit irreader 2>/dev/null || echo "-lLLVM-17")
 
 # 源文件
-SRCS = src/main.cpp src/lexer.cpp src/parser.cpp src/codegen.cpp
+SRCS = src/main.cpp src/lexer.cpp src/parser.cpp src/codegen.cpp src/jit.cpp src/optimizer.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 # 目标
@@ -35,5 +35,8 @@ test: $(TARGET)
 	@echo ""
 	@echo "Testing function definition..."
 	@echo "def foo(x y) x + y;" | ./$(TARGET)
+	@echo ""
+	@echo "Testing function call..."
+	@echo "foo(3, 4);" | ./$(TARGET)
 
 .PHONY: all clean test

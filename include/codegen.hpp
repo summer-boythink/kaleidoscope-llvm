@@ -3,6 +3,8 @@
 
 #include "ast.hpp"
 #include "lexer.hpp"
+#include "jit.hpp"
+#include "optimizer.hpp"
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
@@ -15,6 +17,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/TargetSelect.h"
 
 #include <memory>
 #include <string>
@@ -27,13 +30,19 @@ class CodeGenerator {
 public:
     CodeGenerator();
 
-    /// 初始化模块
+    /// 初始化模块（用于新的编译单元）
     void InitializeModule();
 
     /// 代码生成入口
     llvm::Value* codegen(const ExprAST* Expr);
     llvm::Function* codegen(const PrototypeAST* Proto);
     llvm::Function* codegen(const FunctionAST* Func);
+
+    /// JIT 执行顶层表达式
+    double executeTopLevelExpr(const FunctionAST* Func);
+
+    /// 添加函数定义到 JIT
+    bool addFunctionToJIT(const FunctionAST* Func);
 
     /// 获取模块
     llvm::Module* getModule() const { return TheModule.get(); }
@@ -53,11 +62,23 @@ public:
     /// 获取错误信息
     const std::string& getLastError() const { return LastError; }
 
+    /// 获取 JIT
+    KaleidoscopeJIT* getJIT() { return TheJIT.get(); }
+
+    /// 获取优化器
+    Optimizer* getOptimizer() { return TheOptimizer.get(); }
+
 private:
     /// LLVM 核心对象
     std::unique_ptr<llvm::LLVMContext> TheContext;
     std::unique_ptr<llvm::Module> TheModule;
     std::unique_ptr<llvm::IRBuilder<>> Builder;
+
+    /// JIT 编译器
+    std::unique_ptr<KaleidoscopeJIT> TheJIT;
+
+    /// 优化器
+    std::unique_ptr<Optimizer> TheOptimizer;
 
     /// 符号表：记录当前可见的变量名和对应的 LLVM Value
     std::unordered_map<std::string, llvm::Value*> NamedValues;

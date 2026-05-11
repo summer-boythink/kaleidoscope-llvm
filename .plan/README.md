@@ -1,7 +1,8 @@
 ---
 title: LLVM Kaleidoscope 语言实现计划
 created: 2026-05-08
-status: planning
+updated: 2026-05-11
+status: in_progress
 ---
 
 # LLVM Kaleidoscope 语言实现项目
@@ -51,13 +52,22 @@ llvma/
 │   ├── 08_object_code.md    # 目标代码指南
 │   ├── 09_debug_info.md     # 调试信息指南
 │   └── 10_conclusion.md     # 总结
+├── include/                  # 头文件
+│   ├── lexer.hpp            # 词法分析器
+│   ├── ast.hpp              # AST 节点定义
+│   ├── parser.hpp           # 语法分析器
+│   ├── codegen.hpp          # 代码生成器
+│   ├── jit.hpp              # JIT 编译器
+│   └── optimizer.hpp        # 优化器
 ├── src/                      # 源代码目录
+│   ├── main.cpp             # 主程序入口
 │   ├── lexer.cpp            # 词法分析器
 │   ├── parser.cpp           # 语法分析器
-│   ├── ast.cpp              # AST 节点定义
 │   ├── codegen.cpp          # 代码生成
-│   └── main.cpp             # 主程序入口
+│   ├── jit.cpp              # JIT 编译器
+│   └── optimizer.cpp        # 优化器
 ├── CMakeLists.txt           # 构建配置
+├── Makefile                 # 简化构建
 └── README.md                # 项目说明
 ```
 
@@ -67,7 +77,7 @@ llvma/
 
 ### 你需要了解的知识
 
-- **C++ 基础**：熟悉 C++11/14 特性，包括智能指针、RAII 等
+- **C++ 基础**：熟悉 C++11/14/17 特性，包括智能指针、RAII 等
 - **编译原理基础**：了解词法分析、语法分析的基本概念会有帮助
 - **LLVM 基础**：无需先验知识，我们会在过程中学习
 
@@ -99,10 +109,10 @@ llvma/
 
 | 章节 | 状态 | 完成日期 |
 |------|------|----------|
-| 1. 词法分析器 | ⬜ 未开始 | - |
-| 2. 语法分析器 | ⬜ 未开始 | - |
-| 3. 代码生成 | ⬜ 未开始 | - |
-| 4. JIT 和优化 | ⬜ 未开始 | - |
+| 1. 词法分析器 | ✅ 已完成 | 2026-05-08 |
+| 2. 语法分析器 | ✅ 已完成 | 2026-05-08 |
+| 3. 代码生成 | ✅ 已完成 | 2026-05-08 |
+| 4. JIT 和优化 | ✅ 已完成 | 2026-05-11 |
 | 5. 控制流 | ⬜ 未开始 | - |
 | 6. 用户定义运算符 | ⬜ 未开始 | - |
 | 7. 可变变量 | ⬜ 未开始 | - |

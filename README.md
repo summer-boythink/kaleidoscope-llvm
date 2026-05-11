@@ -7,7 +7,7 @@
 ✅ 第一章：词法分析器
 ✅ 第二章：语法分析器和 AST
 ✅ 第三章：代码生成到 LLVM IR
-⬜ 第四章：JIT 和优化器
+✅ 第四章：JIT 和优化器
 ⬜ 第五章：控制流
 ⬜ 第六章：用户定义运算符
 ⬜ 第七章：可变变量
@@ -25,7 +25,7 @@
 ```bash
 # 安装 LLVM 和相关工具
 sudo apt update
-sudo apt install -y llvm-17 llvm-17-dev clang-17 cmake build-essential
+sudo apt install -y llvm-17 llvm-17-dev clang-17 cmake build-essential libzstd-dev
 
 # 如果需要特定版本，可以调整版本号
 # 例如：llvm-18 llvm-18-dev clang-18
@@ -60,39 +60,46 @@ make
 ### 启动 REPL
 
 ```
-Kaleidoscope Compiler
-Type 'def' to define a function, 'extern' to declare one.
-Type any expression to generate LLVM IR.
+Kaleidoscope JIT Interpreter
+================================
+Type expressions to evaluate them.
+Type 'def name(args) expr' to define a function.
+Type 'extern name(args)' to declare an external function.
 Type 'quit' to exit.
 
+JIT initialized successfully
+Target triple: aarch64-unknown-linux-gnu
 ready> 1 + 2 * 3;
-Read top-level expression:
+Optimized IR:
 define double @__anon_expr() {
 entry:
-  %multmp = fmul double 2.000000e+00, 3.000000e+00
-  %addtmp = fadd double 1.000000e+00, %multmp
-  ret double %addtmp
+    ret double 7.000000e+00
 }
+= 7
 
-ready> def foo(x y) x + y;
-Read function definition:
-define double @foo(double %x, double %y) {
+ready> def add(x y) x + y;
+Defined function: add
+
+ready> add(3, 4);
+Optimized IR:
+define double @__anon_expr() {
 entry:
-  %addtmp = fadd double %x, %y
-  ret double %addtmp
+    %calltmp = call double @add(double 3.000000e+00, double 4.000000e+00)
+    ret double %calltmp
 }
+= 7
 
 ready> extern sin(x);
-Read extern:
-declare double @sin(double %x)
+Declared extern: sin
 
-ready> foo(1, 2);
-Read top-level expression:
+ready> sin(1.570796);
+Optimized IR:
 define double @__anon_expr() {
 entry:
-  %calltmp = call double @foo(double 1.000000e+00, double 2.000000e+00)
-  ret double %calltmp
+    %calltmp = call double @sin(double 1.570796e+00)
+    ret double %calltmp
 }
+= 1
 
 ready> quit
 
@@ -107,17 +114,22 @@ llvma/
 │   ├── lexer.hpp         # 词法分析器
 │   ├── ast.hpp           # AST 节点定义
 │   ├── parser.hpp        # 语法分析器
-│   └── codegen.hpp       # 代码生成器
+│   ├── codegen.hpp       # 代码生成器
+│   ├── jit.hpp           # JIT 编译器
+│   └── optimizer.hpp     # 优化器
 ├── src/                   # 源文件
 │   ├── main.cpp          # 主程序入口
 │   ├── lexer.cpp         # 词法分析器实现
 │   ├── parser.cpp        # 语法分析器实现
-│   └── codegen.cpp       # 代码生成器实现
+│   ├── codegen.cpp       # 代码生成器实现
+│   ├── jit.cpp           # JIT 编译器实现
+│   └── optimizer.cpp     # 优化器实现
 ├── .plan/                 # 项目计划文档
 │   ├── README.md         # 总览
 │   ├── 01_lexer.md       # 第一章指南
 │   ├── 02_parser.md      # 第二章指南
-│   └── 03_codegen.md     # 第三章指南
+│   ├── 03_codegen.md     # 第三章指南
+│   └── 04_jit_optimizer.md # 第四章指南
 ├── CMakeLists.txt        # CMake 构建配置
 ├── Makefile              # 简化构建
 └── README.md             # 本文件
@@ -133,6 +145,8 @@ llvma/
 - ✅ 函数定义
 - ✅ 函数调用
 - ✅ 外部函数声明
+- ✅ JIT 即时执行
+- ✅ 优化 Pass（常量折叠、死代码消除等）
 
 ### 待实现
 
@@ -140,9 +154,19 @@ llvma/
 - ⬜ for 循环
 - ⬜ 用户定义运算符
 - ⬜ 可变变量
-- ⬜ JIT 执行
 - ⬜ 目标代码生成
 - ⬜ 调试信息
+
+## 优化效果
+
+程序使用 LLVM 优化 Pass 对生成的 IR 进行优化：
+
+- **常量折叠**：编译时计算常量表达式
+- **死代码消除**：删除未使用的代码
+- **指令合并**：简化指令模式
+- **全局值编号**：消除重复计算
+
+例如，`1 + 2 * 3` 在优化后直接返回 `7`，无需运行时计算。
 
 ## 学习资源
 
