@@ -8,6 +8,7 @@ Parser::Parser(Lexer& lexer)
     : TheLexer(lexer), CurTok(tok_eof) {
     // 初始化运算符优先级
     BinopPrecedence['<'] = 10;
+    BinopPrecedence['>'] = 10;
     BinopPrecedence['+'] = 20;
     BinopPrecedence['-'] = 20;
     BinopPrecedence['*'] = 40;
@@ -112,8 +113,110 @@ std::unique_ptr<ExprAST> Parser::ParseIdentifierExpr() {
     return std::make_unique<CallExprAST>(IdName, std::move(Args));
 }
 
+/// ParseIfExpr - 解析 if/then/else 表达式
+/// ifexpr ::= 'if' expression 'then' expression ('else' expression)?
+std::unique_ptr<ExprAST> Parser::ParseIfExpr() {
+    getNextToken();  // 消费 'if'
+
+    // 解析条件
+    auto Cond = ParseExpression();
+    if (!Cond) {
+        return nullptr;
+    }
+
+    // 检查 'then'
+    if (CurTok != tok_then) {
+        return LogError("expected 'then'");
+    }
+    getNextToken();  // 消费 'then'
+
+    // 解析 then 分支
+    auto Then = ParseExpression();
+    if (!Then) {
+        return nullptr;
+    }
+
+    // 可选的 else 分支
+    std::unique_ptr<ExprAST> Else = nullptr;
+    if (CurTok == tok_else) {
+        getNextToken();  // 消费 'else'
+        Else = ParseExpression();
+        if (!Else) {
+            return nullptr;
+        }
+    }
+
+    return std::make_unique<IfExprAST>(std::move(Cond),
+                                        std::move(Then),
+                                        std::move(Else));
+}
+
+/// ParseForExpr - 解析 for 循环
+/// forexpr ::= 'for' identifier '=' expr ',' expr (',' expr)? 'in' expression
+std::unique_ptr<ExprAST> Parser::ParseForExpr() {
+    getNextToken();  // 消费 'for'
+
+    // 检查变量名
+    if (CurTok != tok_identifier) {
+        return LogError("expected identifier after 'for'");
+    }
+
+    std::string IdName = TheLexer.getIdentifierStr();
+    getNextToken();  // 消费标识符
+
+    // 检查 '='
+    if (CurTok != '=') {
+        return LogError("expected '=' after 'for'");
+    }
+    getNextToken();  // 消费 '='
+
+    // 解析起始值
+    auto Start = ParseExpression();
+    if (!Start) {
+        return nullptr;
+    }
+
+    // 检查 ','
+    if (CurTok != ',') {
+        return LogError("expected ',' after start value");
+    }
+    getNextToken();  // 消费 ','
+
+    // 解析结束条件
+    auto End = ParseExpression();
+    if (!End) {
+        return nullptr;
+    }
+
+    // 可选的步长
+    std::unique_ptr<ExprAST> Step;
+    if (CurTok == ',') {
+        getNextToken();  // 消费 ','
+        Step = ParseExpression();
+        if (!Step) {
+            return nullptr;
+        }
+    }
+
+    // 检查 'in'
+    if (CurTok != tok_in) {
+        return LogError("expected 'in' after for");
+    }
+    getNextToken();  // 消费 'in'
+
+    // 解析循环体
+    auto Body = ParseExpression();
+    if (!Body) {
+        return nullptr;
+    }
+
+    return std::make_unique<ForExprAST>(IdName, std::move(Start),
+                                         std::move(End), std::move(Step),
+                                         std::move(Body));
+}
+
 /// ParsePrimary - 解析基本表达式
-/// primary ::= identifierexpr | numberexpr | parenexpr
+/// primary ::= identifierexpr | numberexpr | parenexpr | ifexpr | forexpr | unaryexpr
 std::unique_ptr<ExprAST> Parser::ParsePrimary() {
     switch (CurTok) {
     case tok_identifier:
@@ -122,6 +225,17 @@ std::unique_ptr<ExprAST> Parser::ParsePrimary() {
         return ParseNumberExpr();
     case '(':
         return ParseParenExpr();
+    case tok_if:
+        return ParseIfExpr();
+    case tok_for:
+        return ParseForExpr();
+    case '-':
+        // 一元负号
+        getNextToken();  // 消费 '-'
+        if (auto Operand = ParsePrimary()) {
+            return std::make_unique<UnaryExprAST>('-', std::move(Operand));
+        }
+        return nullptr;
     default:
         std::ostringstream oss;
         oss << "unknown token when expecting an expression: " << CurTok;

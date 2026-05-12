@@ -40,9 +40,12 @@ private:
     /// 表达式解析
     std::unique_ptr<ExprAST> ParseExpression();
     std::unique_ptr<ExprAST> ParsePrimary();
+    std::unique_ptr<ExprAST> ParseUnary();
     std::unique_ptr<ExprAST> ParseNumberExpr();
     std::unique_ptr<ExprAST> ParseParenExpr();
     std::unique_ptr<ExprAST> ParseIdentifierExpr();
+    std::unique_ptr<ExprAST> ParseIfExpr();
+    std::unique_ptr<ExprAST> ParseForExpr();
 
     /// 运算符优先级解析
     std::unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec,

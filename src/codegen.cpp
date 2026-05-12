@@ -85,6 +85,9 @@ llvm::Value* CodeGenerator::codegenBinary(const BinaryExprAST* Expr) {
     case '<':
         L = Builder->CreateFCmpULT(L, R, "cmptmp");
         return Builder->CreateUIToFP(L, llvm::Type::getDoubleTy(*TheContext), "booltmp");
+    case '>':
+        L = Builder->CreateFCmpUGT(L, R, "cmptmp");
+        return Builder->CreateUIToFP(L, llvm::Type::getDoubleTy(*TheContext), "booltmp");
     default: return LogErrorV(("Invalid binary operator: " + std::string(1, Expr->getOp())).c_str());
     }
 }
@@ -112,6 +115,162 @@ llvm::Value* CodeGenerator::codegenCall(const CallExprAST* Expr) {
     return Builder->CreateCall(CalleeF, ArgsV, "calltmp");
 }
 
+llvm::Value* CodeGenerator::codegenIf(const IfExprAST* Expr) {
+    // 1. 生成条件代码
+    llvm::Value* CondV = codegen(Expr->getCond());
+    if (!CondV) {
+        return nullptr;
+    }
+
+    // 2. 将条件转换为布尔值（i1）：CondV != 0.0
+    CondV = Builder->CreateFCmpONE(
+        CondV,
+        llvm::ConstantFP::get(*TheContext, llvm::APFloat(0.0)),
+        "ifcond"
+    );
+
+    // 3. 获取当前函数
+    llvm::Function* TheFunction = Builder->GetInsertBlock()->getParent();
+
+    // 4. 创建基本块
+    llvm::BasicBlock* ThenBB = llvm::BasicBlock::Create(*TheContext, "then", TheFunction);
+    llvm::BasicBlock* ElseBB = llvm::BasicBlock::Create(*TheContext, "else");
+    llvm::BasicBlock* MergeBB = llvm::BasicBlock::Create(*TheContext, "ifcont");
+
+    // 5. 创建条件分支
+    Builder->CreateCondBr(CondV, ThenBB, ElseBB);
+
+    // 6. 生成 then 分支代码
+    Builder->SetInsertPoint(ThenBB);
+    llvm::Value* ThenV = codegen(Expr->getThen());
+    if (!ThenV) {
+        return nullptr;
+    }
+    Builder->CreateBr(MergeBB);
+    ThenBB = Builder->GetInsertBlock();  // 代码生成可能添加了新块
+
+    // 7. 生成 else 分支代码
+    TheFunction->insert(TheFunction->end(), ElseBB);
+    Builder->SetInsertPoint(ElseBB);
+
+    llvm::Value* ElseV = nullptr;
+    if (Expr->getElse()) {
+        ElseV = codegen(Expr->getElse());
+        if (!ElseV) {
+            return nullptr;
+        }
+    } else {
+        // 没有 else 分支，返回 0.0
+        ElseV = llvm::ConstantFP::get(*TheContext, llvm::APFloat(0.0));
+    }
+    Builder->CreateBr(MergeBB);
+    ElseBB = Builder->GetInsertBlock();  // 代码生成可能添加了新块
+
+    // 8. 生成 merge 块
+    TheFunction->insert(TheFunction->end(), MergeBB);
+    Builder->SetInsertPoint(MergeBB);
+
+    // 9. 创建 PHI 节点合并两个分支的结果
+    llvm::PHINode* PN = Builder->CreatePHI(llvm::Type::getDoubleTy(*TheContext), 2, "iftmp");
+    PN->addIncoming(ThenV, ThenBB);
+    PN->addIncoming(ElseV, ElseBB);
+
+    return PN;
+}
+
+llvm::Value* CodeGenerator::codegenFor(const ForExprAST* Expr) {
+    // 1. 生成起始值
+    llvm::Value* StartVal = codegen(Expr->getStart());
+    if (!StartVal) {
+        return nullptr;
+    }
+
+    // 2. 创建循环前的基本块
+    llvm::Function* TheFunction = Builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* PreheaderBB = Builder->GetInsertBlock();
+
+    // 3. 创建循环条件检查块
+    llvm::BasicBlock* LoopBB = llvm::BasicBlock::Create(*TheContext, "loop", TheFunction);
+
+    // 4. 跳转到循环块
+    Builder->CreateBr(LoopBB);
+
+    // 5. 开始生成循环块
+    Builder->SetInsertPoint(LoopBB);
+
+    // 6. 创建 PHI 节点接收初始值和迭代值
+    llvm::PHINode* Variable = Builder->CreatePHI(
+        llvm::Type::getDoubleTy(*TheContext), 2, Expr->getVarName()
+    );
+    Variable->addIncoming(StartVal, PreheaderBB);
+
+    // 7. 在符号表中记录循环变量，保存旧值
+    llvm::Value* OldVal = NamedValues[Expr->getVarName()];
+    NamedValues[Expr->getVarName()] = Variable;
+
+    // 8. 生成循环体代码
+    if (!codegen(Expr->getBody())) {
+        // 恢复符号表
+        if (OldVal) {
+            NamedValues[Expr->getVarName()] = OldVal;
+        } else {
+            NamedValues.erase(Expr->getVarName());
+        }
+        return nullptr;
+    }
+
+    // 9. 生成步长
+    llvm::Value* StepVal = nullptr;
+    if (Expr->getStep()) {
+        StepVal = codegen(Expr->getStep());
+        if (!StepVal) {
+            return nullptr;
+        }
+    } else {
+        // 默认步长 1.0
+        StepVal = llvm::ConstantFP::get(*TheContext, llvm::APFloat(1.0));
+    }
+
+    // 10. 计算下一次迭代的值
+    llvm::Value* NextVar = Builder->CreateFAdd(Variable, StepVal, "nextvar");
+
+    // 11. 生成结束条件
+    llvm::Value* EndCond = codegen(Expr->getEnd());
+    if (!EndCond) {
+        return nullptr;
+    }
+
+    // 转换为布尔值：EndCond != 0.0
+    EndCond = Builder->CreateFCmpONE(
+        EndCond,
+        llvm::ConstantFP::get(*TheContext, llvm::APFloat(0.0)),
+        "loopcond"
+    );
+
+    // 12. 创建循环后块
+    llvm::BasicBlock* LoopEndBB = Builder->GetInsertBlock();
+    llvm::BasicBlock* AfterBB = llvm::BasicBlock::Create(*TheContext, "afterloop", TheFunction);
+
+    // 13. 创建条件分支
+    Builder->CreateCondBr(EndCond, LoopBB, AfterBB);
+
+    // 14. 为 PHI 添加后续迭代值
+    Variable->addIncoming(NextVar, LoopEndBB);
+
+    // 15. 恢复符号表
+    if (OldVal) {
+        NamedValues[Expr->getVarName()] = OldVal;
+    } else {
+        NamedValues.erase(Expr->getVarName());
+    }
+
+    // 16. 继续生成循环后代码
+    Builder->SetInsertPoint(AfterBB);
+
+    // for 循环返回 0.0
+    return llvm::ConstantFP::get(*TheContext, llvm::APFloat(0.0));
+}
+
 llvm::Value* CodeGenerator::codegen(const ExprAST* Expr) {
     if (!Expr) return nullptr;
     if (auto* E = dynamic_cast<const NumberExprAST*>(Expr)) return codegenNumber(E);
@@ -119,6 +278,8 @@ llvm::Value* CodeGenerator::codegen(const ExprAST* Expr) {
     if (auto* E = dynamic_cast<const BinaryExprAST*>(Expr)) return codegenBinary(E);
     if (auto* E = dynamic_cast<const UnaryExprAST*>(Expr)) return codegenUnary(E);
     if (auto* E = dynamic_cast<const CallExprAST*>(Expr)) return codegenCall(E);
+    if (auto* E = dynamic_cast<const IfExprAST*>(Expr)) return codegenIf(E);
+    if (auto* E = dynamic_cast<const ForExprAST*>(Expr)) return codegenFor(E);
     return LogErrorV("Unknown expression type");
 }
 

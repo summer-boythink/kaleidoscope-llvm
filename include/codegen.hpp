@@ -95,6 +95,8 @@ private:
     llvm::Value* codegenBinary(const BinaryExprAST* Expr);
     llvm::Value* codegenUnary(const UnaryExprAST* Expr);
     llvm::Value* codegenCall(const CallExprAST* Expr);
+    llvm::Value* codegenIf(const IfExprAST* Expr);
+    llvm::Value* codegenFor(const ForExprAST* Expr);
 
     /// 错误处理
     llvm::Value* LogErrorV(const char* Str);

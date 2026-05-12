@@ -113,6 +113,63 @@ public:
     }
 };
 
+/// IfExprAST - if/then/else 条件表达式
+/// 语法: if cond then then_expr else else_expr
+class IfExprAST : public ExprAST {
+    std::unique_ptr<ExprAST> Cond;   // 条件表达式
+    std::unique_ptr<ExprAST> Then;   // then 分支
+    std::unique_ptr<ExprAST> Else;   // else 分支（可为空）
+
+public:
+    IfExprAST(std::unique_ptr<ExprAST> Cond,
+              std::unique_ptr<ExprAST> Then,
+              std::unique_ptr<ExprAST> Else)
+        : Cond(std::move(Cond)), Then(std::move(Then)), Else(std::move(Else)) {}
+
+    const ExprAST* getCond() const { return Cond.get(); }
+    const ExprAST* getThen() const { return Then.get(); }
+    const ExprAST* getElse() const { return Else.get(); }
+
+    std::string toString() const override {
+        return "If(" + (Cond ? Cond->toString() : "null") + ", " +
+               (Then ? Then->toString() : "null") + ", " +
+               (Else ? Else->toString() : "null") + ")";
+    }
+};
+
+/// ForExprAST - for 循环表达式
+/// 语法: for var = start, cond, step in body
+class ForExprAST : public ExprAST {
+    std::string VarName;                    // 循环变量名
+    std::unique_ptr<ExprAST> Start;         // 起始值
+    std::unique_ptr<ExprAST> End;           // 结束条件
+    std::unique_ptr<ExprAST> Step;          // 步长（可为空，默认 1.0）
+    std::unique_ptr<ExprAST> Body;          // 循环体
+
+public:
+    ForExprAST(const std::string& VarName,
+               std::unique_ptr<ExprAST> Start,
+               std::unique_ptr<ExprAST> End,
+               std::unique_ptr<ExprAST> Step,
+               std::unique_ptr<ExprAST> Body)
+        : VarName(VarName), Start(std::move(Start)), End(std::move(End)),
+          Step(std::move(Step)), Body(std::move(Body)) {}
+
+    const std::string& getVarName() const { return VarName; }
+    const ExprAST* getStart() const { return Start.get(); }
+    const ExprAST* getEnd() const { return End.get(); }
+    const ExprAST* getStep() const { return Step.get(); }
+    const ExprAST* getBody() const { return Body.get(); }
+
+    std::string toString() const override {
+        return "For(" + VarName + ", " +
+               (Start ? Start->toString() : "null") + ", " +
+               (End ? End->toString() : "null") + ", " +
+               (Step ? Step->toString() : "null") + ", " +
+               (Body ? Body->toString() : "null") + ")";
+    }
+};
+
 //===----------------------------------------------------------------------===//
 // 函数定义相关
 //===----------------------------------------------------------------------===//
