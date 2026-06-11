@@ -176,16 +176,41 @@ public:
 
 /// PrototypeAST - 函数原型（函数签名）
 /// 表示函数的名称和参数名列表，如 "foo(x y z)"
+/// 也用于表示运算符定义
 class PrototypeAST {
     std::string Name;                // 函数名
     std::vector<std::string> Args;   // 参数名列表
+    bool IsOperator;                 // 是否为运算符
+    unsigned Precedence;             // 运算符优先级 (0 = 最高)
 
 public:
-    PrototypeAST(const std::string& Name, std::vector<std::string> Args)
-        : Name(Name), Args(std::move(Args)) {}
+    PrototypeAST(const std::string& Name, std::vector<std::string> Args,
+                 bool IsOperator = false, unsigned Precedence = 0)
+        : Name(Name), Args(std::move(Args)),
+          IsOperator(IsOperator), Precedence(Precedence) {}
 
     const std::string& getName() const { return Name; }
     const std::vector<std::string>& getArgs() const { return Args; }
+    bool isOperator() const { return IsOperator; }
+    unsigned getPrecedence() const { return Precedence; }
+
+    /// 获取二元运算符名称
+    /// 例如 "binary+" 返回 "+"
+    std::string getBinaryOperator() const {
+        if (Name.size() > 6 && Name.substr(0, 6) == "binary") {
+            return Name.substr(6);
+        }
+        return "";
+    }
+
+    /// 获取一元运算符名称
+    /// 例如 "unary!" 返回 "!"
+    std::string getUnaryOperator() const {
+        if (Name.size() > 5 && Name.substr(0, 5) == "unary") {
+            return Name.substr(5);
+        }
+        return "";
+    }
 
     std::string toString() const {
         std::string result = "Prototype(" + Name + ", [";
@@ -193,7 +218,11 @@ public:
             if (i > 0) result += ", ";
             result += Args[i];
         }
-        result += "])";
+        result += "]";
+        if (IsOperator) {
+            result += ", operator, prec=" + std::to_string(Precedence);
+        }
+        result += ")";
         return result;
     }
 };

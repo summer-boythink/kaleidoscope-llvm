@@ -32,6 +32,15 @@ public:
     /// 获取错误信息
     const std::string& getLastError() const { return LastError; }
 
+    /// 添加用户定义的二元运算符优先级
+    void addBinaryOperator(char Op, unsigned Precedence);
+
+    /// 检查是否是用户定义的一元运算符
+    bool isUserDefinedUnary(char Op) const;
+
+    /// 添加用户定义的一元运算符
+    void addUnaryOperator(char Op);
+
 private:
     /// 错误处理辅助函数
     std::unique_ptr<ExprAST> LogError(const char* Str);
@@ -64,8 +73,11 @@ private:
     /// 错误信息
     std::string LastError;
 
-    /// 运算符优先级表
+    /// 运算符优先级表 (包含内置和用户定义的)
     std::map<char, int> BinopPrecedence;
+
+    /// 用户定义的一元运算符集合
+    std::string UserDefinedUnaryOps;
 };
 
 } // namespace kaleidoscope

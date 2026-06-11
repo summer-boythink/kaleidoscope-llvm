@@ -1,4 +1,5 @@
 #include "parser.hpp"
+#include <cctype>
 #include <iostream>
 #include <sstream>
 
@@ -6,13 +7,30 @@ namespace kaleidoscope {
 
 Parser::Parser(Lexer& lexer)
     : TheLexer(lexer), CurTok(tok_eof) {
-    // 初始化运算符优先级
+    // 初始化内置运算符优先级
     BinopPrecedence['<'] = 10;
     BinopPrecedence['>'] = 10;
     BinopPrecedence['+'] = 20;
     BinopPrecedence['-'] = 20;
     BinopPrecedence['*'] = 40;
     BinopPrecedence['/'] = 40;
+}
+
+/// addBinaryOperator - 添加用户定义的二元运算符
+void Parser::addBinaryOperator(char Op, unsigned Precedence) {
+    BinopPrecedence[Op] = Precedence;
+}
+
+/// isUserDefinedUnary - 检查是否是用户定义的一元运算符
+bool Parser::isUserDefinedUnary(char Op) const {
+    return UserDefinedUnaryOps.find(Op) != std::string::npos;
+}
+
+/// addUnaryOperator - 添加用户定义的一元运算符
+void Parser::addUnaryOperator(char Op) {
+    if (UserDefinedUnaryOps.find(Op) == std::string::npos) {
+        UserDefinedUnaryOps += Op;
+    }
 }
 
 /// getNextToken - 从词法分析器获取下一个 Token
@@ -230,13 +248,28 @@ std::unique_ptr<ExprAST> Parser::ParsePrimary() {
     case tok_for:
         return ParseForExpr();
     case '-':
-        // 一元负号
+        // 内置一元负号
         getNextToken();  // 消费 '-'
         if (auto Operand = ParsePrimary()) {
             return std::make_unique<UnaryExprAST>('-', std::move(Operand));
         }
         return nullptr;
     default:
+        // 检查是否是用户定义的一元运算符
+        if (isascii(CurTok) && isUserDefinedUnary(static_cast<char>(CurTok))) {
+            char OpChar = static_cast<char>(CurTok);
+            getNextToken();  // 消费运算符
+            if (auto Operand = ParsePrimary()) {
+                // 生成函数调用 "unary<op>"
+                std::string FnName = "unary";
+                FnName += OpChar;
+                std::vector<std::unique_ptr<ExprAST>> Args;
+                Args.push_back(std::move(Operand));
+                return std::make_unique<CallExprAST>(FnName, std::move(Args));
+            }
+            return nullptr;
+        }
+
         std::ostringstream oss;
         oss << "unknown token when expecting an expression: " << CurTok;
         return LogError(oss.str().c_str());
@@ -276,9 +309,23 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
             }
         }
 
-        // 合并 LHS 和 RHS
-        LHS = std::make_unique<BinaryExprAST>(BinOp, std::move(LHS),
-                                               std::move(RHS));
+        // 检查是否是内置运算符
+        if (BinOp == '+' || BinOp == '-' || BinOp == '*' ||
+            BinOp == '/' || BinOp == '<' || BinOp == '>') {
+            // 内置运算符：生成 BinaryExprAST
+            LHS = std::make_unique<BinaryExprAST>(BinOp, std::move(LHS),
+                                                   std::move(RHS));
+        } else {
+            // 用户定义的运算符：生成函数调用
+            std::string FnName = "binary";
+            FnName += static_cast<char>(BinOp);
+
+            std::vector<std::unique_ptr<ExprAST>> Args;
+            Args.push_back(std::move(LHS));
+            Args.push_back(std::move(RHS));
+
+            LHS = std::make_unique<CallExprAST>(FnName, std::move(Args));
+        }
     }
 }
 
@@ -295,13 +342,52 @@ std::unique_ptr<ExprAST> Parser::ParseExpression() {
 
 /// ParsePrototype - 解析函数原型
 /// prototype ::= identifier '(' identifier* ')'
+///            ::= 'binary' op number? '(' identifier identifier ')'
+///            ::= 'unary' op '(' identifier ')'
 std::unique_ptr<PrototypeAST> Parser::ParsePrototype() {
-    if (CurTok != tok_identifier) {
-        return LogErrorP("Expected function name in prototype");
-    }
+    std::string FnName;
+    unsigned Kind = 0;  // 0 = 普通标识符, 1 = 一元运算符, 2 = 二元运算符
+    unsigned BinaryPrecedence = 30;
 
-    std::string FnName = TheLexer.getIdentifierStr();
-    getNextToken();  // 消费函数名
+    switch (CurTok) {
+    default:
+        return LogErrorP("Expected function name in prototype");
+    case tok_identifier:
+        FnName = TheLexer.getIdentifierStr();
+        Kind = 0;
+        getNextToken();
+        break;
+    case tok_binary:
+        getNextToken();
+        if (!isascii(CurTok)) {
+            return LogErrorP("Expected binary operator");
+        }
+        FnName = "binary";
+        FnName += static_cast<char>(CurTok);
+        Kind = 2;
+        getNextToken();
+
+        // 读取可选的优先级
+        if (CurTok == tok_number) {
+            double Prec = TheLexer.getNumVal();
+            if (Prec < 1 || Prec > 100) {
+                return LogErrorP("Invalid precedence: must be 1..100");
+            }
+            BinaryPrecedence = static_cast<unsigned>(Prec);
+            getNextToken();
+        }
+        break;
+    case tok_unary:
+        getNextToken();
+        if (!isascii(CurTok)) {
+            return LogErrorP("Expected unary operator");
+        }
+        FnName = "unary";
+        FnName += static_cast<char>(CurTok);
+        Kind = 1;
+        getNextToken();
+        break;
+    }
 
     if (CurTok != '(') {
         return LogErrorP("Expected '(' in prototype");
@@ -317,9 +403,18 @@ std::unique_ptr<PrototypeAST> Parser::ParsePrototype() {
         return LogErrorP("Expected ')' in prototype");
     }
 
+    // 验证参数数量
+    if (Kind == 1 && ArgNames.size() != 1) {
+        return LogErrorP("Invalid number of operands for unary operator");
+    }
+    if (Kind == 2 && ArgNames.size() != 2) {
+        return LogErrorP("Invalid number of operands for binary operator");
+    }
+
     getNextToken();  // 消费 ')'
 
-    return std::make_unique<PrototypeAST>(FnName, std::move(ArgNames));
+    return std::make_unique<PrototypeAST>(FnName, std::move(ArgNames),
+                                           Kind != 0, BinaryPrecedence);
 }
 
 /// ParseDefinition - 解析函数定义
