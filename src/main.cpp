@@ -32,17 +32,19 @@ static void HandleOperatorPrototype(Parser& parser, const PrototypeAST* Proto) {
     // 检查是否是二元运算符
     std::string BinOp = Proto->getBinaryOperator();
     if (!BinOp.empty() && BinOp.size() == 1) {
-        parser.addBinaryOperator(BinOp[0], Proto->getPrecedence());
-        std::cout << "Installed binary operator '" << BinOp
-                  << "' with precedence " << Proto->getPrecedence() << "\n";
+        if (parser.addBinaryOperator(BinOp[0], Proto->getPrecedence())) {
+            std::cout << "Installed binary operator '" << BinOp
+                      << "' with precedence " << Proto->getPrecedence() << "\n";
+        }
         return;
     }
 
     // 检查是否是一元运算符
     std::string UnOp = Proto->getUnaryOperator();
     if (!UnOp.empty() && UnOp.size() == 1) {
-        parser.addUnaryOperator(UnOp[0]);
-        std::cout << "Installed unary operator '" << UnOp << "'\n";
+        if (parser.addUnaryOperator(UnOp[0])) {
+            std::cout << "Installed unary operator '" << UnOp << "'\n";
+        }
         return;
     }
 }

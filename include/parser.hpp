@@ -33,13 +33,15 @@ public:
     const std::string& getLastError() const { return LastError; }
 
     /// 添加用户定义的二元运算符优先级
-    void addBinaryOperator(char Op, unsigned Precedence);
+    /// 返回 true 表示成功添加，false 表示被拒绝（如内置运算符）
+    bool addBinaryOperator(char Op, unsigned Precedence);
 
     /// 检查是否是用户定义的一元运算符
     bool isUserDefinedUnary(char Op) const;
 
     /// 添加用户定义的一元运算符
-    void addUnaryOperator(char Op);
+    /// 返回 true 表示成功添加，false 表示被拒绝（如内置运算符）
+    bool addUnaryOperator(char Op);
 
 private:
     /// 错误处理辅助函数

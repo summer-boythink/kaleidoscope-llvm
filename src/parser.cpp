@@ -5,9 +5,54 @@
 
 namespace kaleidoscope {
 
+//===----------------------------------------------------------------------===//
+// 辅助：运算符字符验证
+//===----------------------------------------------------------------------===//
+
+/// 内置运算符字符集合（不可被用户定义的运算符覆盖）
+static constexpr const char* BuiltinBinaryOps = "+-*/<>";
+static constexpr const char* BuiltinUnaryOps = "-";
+
+/// isValidOperatorChar - 检查字符是否可以作为用户定义运算符
+/// 规则：
+///   1. 必须是 ASCII 字符
+///   2. 不能是字母或数字
+///   3. 不能是空白字符
+///   4. 不能是语言语法关键字符：括号、逗号、分号、注释、引号等
+///   5. 必须为可打印字符
+static bool isValidOperatorChar(int c) {
+    if (!isascii(c)) return false;
+    if (isalnum(c)) return false;
+    if (isspace(c)) return false;
+
+    // 拒绝与语言语法冲突的字符
+    switch (c) {
+    case '(': case ')':   // 函数调用/分组
+    case '[': case ']':   // 保留
+    case '{': case '}':   // 保留
+    case ',':              // 参数分隔符
+    case ';':              // 顶层分隔符
+    case '#':              // 注释
+    case '\'': case '"':   // 字符串分隔符
+    case '\\':             // 转义字符
+    case '_':              // 标识符字符
+    case '.':              // 数字中的小数点
+        return false;
+    default:
+        break;
+    }
+
+    // 必须为可打印字符
+    return isprint(c);
+}
+
+//===----------------------------------------------------------------------===//
+// Parser 构造与运算符管理
+//===----------------------------------------------------------------------===//
+
 Parser::Parser(Lexer& lexer)
     : TheLexer(lexer), CurTok(tok_eof) {
-    // 初始化内置运算符优先级
+    // 初始化内置运算符优先级（仅 ASCII 范围内的运算符字符）
     BinopPrecedence['<'] = 10;
     BinopPrecedence['>'] = 10;
     BinopPrecedence['+'] = 20;
@@ -17,8 +62,29 @@ Parser::Parser(Lexer& lexer)
 }
 
 /// addBinaryOperator - 添加用户定义的二元运算符
-void Parser::addBinaryOperator(char Op, unsigned Precedence) {
-    BinopPrecedence[Op] = Precedence;
+/// 安全检查：
+///   1. 不允许覆盖内置运算符的优先级
+///   2. 优先级必须在 1..100 范围内
+/// 返回 true 表示成功添加，false 表示被拒绝
+bool Parser::addBinaryOperator(char Op, unsigned Precedence) {
+    // 检查是否是内置运算符
+    for (const char* p = BuiltinBinaryOps; *p; ++p) {
+        if (*p == Op) {
+            std::cerr << "Warning: Cannot override built-in binary operator '"
+                      << Op << "'. Use a different operator character.\n";
+            return false;
+        }
+    }
+
+    if (Precedence < 1 || Precedence > 100) {
+        std::cerr << "Warning: Invalid precedence " << Precedence
+                  << " for operator '" << Op
+                  << "'. Must be 1..100. Using default 30.\n";
+        Precedence = 30;
+    }
+
+    BinopPrecedence[Op] = static_cast<int>(Precedence);
+    return true;
 }
 
 /// isUserDefinedUnary - 检查是否是用户定义的一元运算符
@@ -27,10 +93,22 @@ bool Parser::isUserDefinedUnary(char Op) const {
 }
 
 /// addUnaryOperator - 添加用户定义的一元运算符
-void Parser::addUnaryOperator(char Op) {
+/// 安全检查：不允许覆盖内置一元运算符 '-'
+/// 返回 true 表示成功添加，false 表示被拒绝
+bool Parser::addUnaryOperator(char Op) {
+    // 检查是否是内置一元运算符
+    for (const char* p = BuiltinUnaryOps; *p; ++p) {
+        if (*p == Op) {
+            std::cerr << "Warning: Cannot override built-in unary operator '"
+                      << Op << "'. Use a different operator character.\n";
+            return false;
+        }
+    }
+
     if (UserDefinedUnaryOps.find(Op) == std::string::npos) {
         UserDefinedUnaryOps += Op;
     }
+    return true;
 }
 
 /// getNextToken - 从词法分析器获取下一个 Token
@@ -51,8 +129,11 @@ std::unique_ptr<PrototypeAST> Parser::LogErrorP(const char* Str) {
     return nullptr;
 }
 
-/// GetTokPrecedence - 获取当前运算符的优先级
+/// GetTokPrecedence - 获取当前二元运算符的优先级
+/// 返回 -1 表示当前 token 不是二元运算符
 int Parser::GetTokPrecedence() {
+    // 只有 ASCII 范围内的单字符 token 才可能是运算符
+    // （tok_identifier, tok_number 等负值都会被 isascii 拒绝）
     if (!isascii(CurTok)) {
         return -1;
     }
@@ -233,8 +314,9 @@ std::unique_ptr<ExprAST> Parser::ParseForExpr() {
                                          std::move(Body));
 }
 
-/// ParsePrimary - 解析基本表达式
-/// primary ::= identifierexpr | numberexpr | parenexpr | ifexpr | forexpr | unaryexpr
+/// ParsePrimary - 解析基本表达式（不含一元运算符）
+/// primary ::= identifierexpr | numberexpr | parenexpr | ifexpr | forexpr
+/// 一元运算符在 ParseUnary 中处理
 std::unique_ptr<ExprAST> Parser::ParsePrimary() {
     switch (CurTok) {
     case tok_identifier:
@@ -247,37 +329,67 @@ std::unique_ptr<ExprAST> Parser::ParsePrimary() {
         return ParseIfExpr();
     case tok_for:
         return ParseForExpr();
-    case '-':
-        // 内置一元负号
-        getNextToken();  // 消费 '-'
-        if (auto Operand = ParsePrimary()) {
-            return std::make_unique<UnaryExprAST>('-', std::move(Operand));
-        }
-        return nullptr;
     default:
-        // 检查是否是用户定义的一元运算符
-        if (isascii(CurTok) && isUserDefinedUnary(static_cast<char>(CurTok))) {
-            char OpChar = static_cast<char>(CurTok);
-            getNextToken();  // 消费运算符
-            if (auto Operand = ParsePrimary()) {
-                // 生成函数调用 "unary<op>"
-                std::string FnName = "unary";
-                FnName += OpChar;
-                std::vector<std::unique_ptr<ExprAST>> Args;
-                Args.push_back(std::move(Operand));
-                return std::make_unique<CallExprAST>(FnName, std::move(Args));
-            }
-            return nullptr;
+        // 到达这里说明遇到了无法识别的 token
+        // 可能是真正无法识别的 token，也可能是 EOF
+        if (CurTok == tok_eof) {
+            return LogError("unexpected end of input when expecting an expression");
         }
-
         std::ostringstream oss;
-        oss << "unknown token when expecting an expression: " << CurTok;
+        if (isascii(CurTok) && isprint(CurTok)) {
+            oss << "unexpected character '" << static_cast<char>(CurTok)
+                << "' when expecting an expression";
+        } else {
+            oss << "unknown token when expecting an expression: " << CurTok;
+        }
         return LogError(oss.str().c_str());
     }
 }
 
+/// ParseUnary - 解析一元运算符表达式
+/// unary ::= primary
+///        ::= '-' unary
+///        ::= user_defined_unary_op unary
+///
+/// 一元运算符是右递归的，例如:
+///   !!x     → not(not(x))
+///   -!x     → neg(not(x))
+///   - - x   → neg(neg(x))
+std::unique_ptr<ExprAST> Parser::ParseUnary() {
+    // 检查是否是内置一元负号 '-'
+    // 注意：'-' 既是二元减号也是一元负号，需要在 ParseUnary 中处理一元用法
+    if (CurTok == '-') {
+        getNextToken();  // 消费 '-'
+        if (auto Operand = ParseUnary()) {
+            return std::make_unique<UnaryExprAST>('-', std::move(Operand));
+        }
+        return nullptr;
+    }
+
+    // 检查是否是用户定义的一元运算符
+    // 注意：必须是 ASCII 字符且不是内置一元运算符
+    if (isascii(CurTok) && isUserDefinedUnary(static_cast<char>(CurTok))) {
+        char OpChar = static_cast<char>(CurTok);
+        getNextToken();  // 消费运算符
+
+        if (auto Operand = ParseUnary()) {
+            // 生成函数调用 "unary<op>"
+            std::string FnName = "unary";
+            FnName += OpChar;
+            std::vector<std::unique_ptr<ExprAST>> Args;
+            Args.push_back(std::move(Operand));
+            return std::make_unique<CallExprAST>(FnName, std::move(Args));
+        }
+        return nullptr;
+    }
+
+    // 没有一元运算符，解析基本表达式
+    return ParsePrimary();
+}
+
 /// ParseBinOpRHS - 解析二元运算符右侧
-/// binoprhs ::= ('+' primary)*
+/// binoprhs ::= (binop unary)*
+/// 右侧可以包含一元运算符: a + -!b
 std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
                                                 std::unique_ptr<ExprAST> LHS) {
     while (true) {
@@ -292,8 +404,8 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
         int BinOp = CurTok;
         getNextToken();  // 消费运算符
 
-        // 解析运算符右侧的基本表达式
-        auto RHS = ParsePrimary();
+        // 解析运算符右侧的一元表达式（一元运算符可能紧接着出现，如 a + -b）
+        auto RHS = ParseUnary();
         if (!RHS) {
             return nullptr;
         }
@@ -309,14 +421,18 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
             }
         }
 
-        // 检查是否是内置运算符
+        // 检查是否是内置二元运算符
+        // 注意：即使有同名的用户定义运算符（如 binary+），内置运算符
+        // 在表达式中的行为保持不变。这是为了防止递归陷阱：
+        // 如果 binary+ 的实现中使用了 '+', 应当调用内置算术加法而非递归调用自身。
         if (BinOp == '+' || BinOp == '-' || BinOp == '*' ||
             BinOp == '/' || BinOp == '<' || BinOp == '>') {
-            // 内置运算符：生成 BinaryExprAST
-            LHS = std::make_unique<BinaryExprAST>(BinOp, std::move(LHS),
+            // 内置运算符：生成 BinaryExprAST（或 UnaryExprAST 的子类）
+            LHS = std::make_unique<BinaryExprAST>(static_cast<char>(BinOp),
+                                                   std::move(LHS),
                                                    std::move(RHS));
         } else {
-            // 用户定义的运算符：生成函数调用
+            // 用户定义的运算符：生成函数调用 "binary<op>"
             std::string FnName = "binary";
             FnName += static_cast<char>(BinOp);
 
@@ -330,9 +446,9 @@ std::unique_ptr<ExprAST> Parser::ParseBinOpRHS(int ExprPrec,
 }
 
 /// ParseExpression - 解析表达式
-/// expression ::= primary binoprhs
+/// expression ::= unary binoprhs
 std::unique_ptr<ExprAST> Parser::ParseExpression() {
-    auto LHS = ParsePrimary();
+    auto LHS = ParseUnary();
     if (!LHS) {
         return nullptr;
     }
@@ -360,7 +476,22 @@ std::unique_ptr<PrototypeAST> Parser::ParsePrototype() {
     case tok_binary:
         getNextToken();
         if (!isascii(CurTok)) {
-            return LogErrorP("Expected binary operator");
+            return LogErrorP("Expected binary operator character");
+        }
+        if (!isValidOperatorChar(CurTok)) {
+            std::ostringstream oss;
+            oss << "Invalid binary operator character '"
+                << static_cast<char>(CurTok) << "'";
+            return LogErrorP(oss.str().c_str());
+        }
+        // 额外检查：不能是内置二元运算符字符（它们不可覆盖）
+        for (const char* p = BuiltinBinaryOps; *p; ++p) {
+            if (*p == CurTok) {
+                std::cerr << "Warning: Defining binary operator '"
+                          << static_cast<char>(CurTok)
+                          << "' will not override the built-in operator in expressions.\n";
+                break;
+            }
         }
         FnName = "binary";
         FnName += static_cast<char>(CurTok);
@@ -380,7 +511,22 @@ std::unique_ptr<PrototypeAST> Parser::ParsePrototype() {
     case tok_unary:
         getNextToken();
         if (!isascii(CurTok)) {
-            return LogErrorP("Expected unary operator");
+            return LogErrorP("Expected unary operator character");
+        }
+        if (!isValidOperatorChar(CurTok)) {
+            std::ostringstream oss;
+            oss << "Invalid unary operator character '"
+                << static_cast<char>(CurTok) << "'";
+            return LogErrorP(oss.str().c_str());
+        }
+        // 额外检查：不能是内置一元运算符字符
+        for (const char* p = BuiltinUnaryOps; *p; ++p) {
+            if (*p == CurTok) {
+                std::cerr << "Warning: Defining unary operator '"
+                          << static_cast<char>(CurTok)
+                          << "' will not override the built-in operator in expressions.\n";
+                break;
+            }
         }
         FnName = "unary";
         FnName += static_cast<char>(CurTok);

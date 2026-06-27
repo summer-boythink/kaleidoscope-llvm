@@ -295,7 +295,9 @@ llvm::Function* CodeGenerator::codegen(const PrototypeAST* Proto) {
 llvm::Function* CodeGenerator::codegen(const FunctionAST* Func) {
     const PrototypeAST* Proto = Func->getProto();
     if (FunctionProtos.find(Proto->getName()) == FunctionProtos.end())
-        FunctionProtos[Proto->getName()] = std::make_unique<PrototypeAST>(Proto->getName(), Proto->getArgs());
+        FunctionProtos[Proto->getName()] = std::make_unique<PrototypeAST>(
+            Proto->getName(), Proto->getArgs(),
+            Proto->isOperator(), Proto->getPrecedence());
     llvm::Function* TheFunction = codegen(Proto);
     if (!TheFunction) return nullptr;
     if (!TheFunction->empty())
